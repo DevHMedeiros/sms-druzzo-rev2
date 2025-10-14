@@ -232,7 +232,7 @@ app.get('/api', (req, res) => {
 app.get('/api/models', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         m.*,
         COUNT(c.id) as command_count
       FROM device_models m
@@ -389,7 +389,7 @@ app.get('/api/models/:modelId/commands', async (req, res) => {
     const { modelId } = req.params;
 
     const result = await pool.query(`
-      SELECT 
+      SELECT
         c.*,
         m.name as model_name
       FROM commands c
@@ -417,7 +417,7 @@ app.get('/api/models/:modelId/commands', async (req, res) => {
 app.get('/api/commands', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         c.*,
         m.name as model_name
       FROM commands c
@@ -609,9 +609,9 @@ app.post('/api/sms/send', async (req, res) => {
         const smsResult = await sendSMSCommand(cleanPhone, commandText, modelName);
 
         const result = await pool.query(`
-          INSERT INTO sms_history 
-          (phone_number, model_id, command_text, status, sent_at, details, notes, response_data) 
-          VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7) 
+          INSERT INTO sms_history
+          (phone_number, model_id, command_text, status, sent_at, details, notes, response_data)
+          VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7)
           RETURNING *
         `, [
           cleanPhone,
@@ -764,10 +764,10 @@ app.get('/api/sms/history', async (req, res) => {
     const offsetParam = paramCount + 2;
 
     const query = `
-      SELECT 
+      SELECT
         h.*,
         m.name as model_name,
-        CASE 
+        CASE
           WHEN h.status = 'sent' THEN '✅'
           WHEN h.status = 'failed' THEN '❌'
           WHEN h.status = 'pending' THEN '⏳'
@@ -784,7 +784,7 @@ app.get('/api/sms/history', async (req, res) => {
 
     // Get total count for pagination
     const countQuery = `
-      SELECT COUNT(*) 
+      SELECT COUNT(*)
       FROM sms_history h
       LEFT JOIN device_models m ON h.model_id = m.id
       ${whereClause}
@@ -828,7 +828,7 @@ app.get('/api/sms/stats', async (req, res) => {
     const { period = '30' } = req.query; // days
 
     const stats = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total_messages,
         COUNT(CASE WHEN status = 'sent' THEN 1 END) as sent_count,
         COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count,
@@ -836,25 +836,25 @@ app.get('/api/sms/stats', async (req, res) => {
         COUNT(DISTINCT phone_number) as unique_numbers,
         COUNT(DISTINCT model_id) as models_used,
         DATE_TRUNC('day', sent_at) as date
-      FROM sms_history 
+      FROM sms_history
       WHERE sent_at >= NOW() - INTERVAL '${parseInt(period)} days'
       GROUP BY DATE_TRUNC('day', sent_at)
       ORDER BY date DESC
     `);
 
     const totals = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total_messages,
         COUNT(CASE WHEN status = 'sent' THEN 1 END) as sent_count,
         COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count,
         COUNT(DISTINCT phone_number) as unique_numbers,
         ROUND(AVG(CASE WHEN status = 'sent' THEN 1.0 ELSE 0.0 END) * 100, 2) as success_rate
-      FROM sms_history 
+      FROM sms_history
       WHERE sent_at >= NOW() - INTERVAL '${parseInt(period)} days'
     `);
 
     const topModels = await pool.query(`
-      SELECT 
+      SELECT
         m.name,
         COUNT(*) as usage_count,
         COUNT(CASE WHEN h.status = 'sent' THEN 1 END) as success_count
@@ -912,7 +912,7 @@ app.get('/api/reports/csv', async (req, res) => {
     const { period = '30' } = req.query;
 
     const result = await pool.query(`
-      SELECT 
+      SELECT
         h.phone_number,
         m.name as model_name,
         h.command_text,
@@ -1063,8 +1063,8 @@ async function initializeDatabase() {
 
     // Insert sample data
     await pool.query(`
-      INSERT INTO device_models (name, description) 
-      VALUES 
+      INSERT INTO device_models (name, description)
+      VALUES
         ('TK103', 'Rastreador GPS TK103 - Modelo básico'),
         ('TK102', 'Rastreador GPS TK102 - Modelo compacto'),
         ('GT06', 'Rastreador GPS GT06 - Modelo avançado'),
@@ -1088,8 +1088,8 @@ async function initializeDatabase() {
         const modelId = modelResult.rows[0].id;
         for (const command of commands) {
           await pool.query(`
-            INSERT INTO commands (model_id, command_text, description) 
-            VALUES ($1, $2, $3) 
+            INSERT INTO commands (model_id, command_text, description)
+            VALUES ($1, $2, $3)
             ON CONFLICT (model_id, command_text) DO NOTHING
           `, [modelId, command, `Comando ${command} para ${model}`]);
         }
