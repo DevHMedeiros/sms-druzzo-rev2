@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const path = require('path');
 const { Pool } = require('pg');
 const multer = require('multer');
-const fs = require('fs').promises;
+const fs = require('fs'); // Apenas uma declaração de 'fs' é necessária
 require('dotenv').config();
 
 const app = express();
@@ -18,14 +18,26 @@ const upload = multer({
   }
 });
 
-// Database connection with retry logic
+// =================== CORREÇÃO DO BANCO DE DADOS ===================
+// Lógica para ler a senha do secret do Docker ou do .env
+const password = process.env.DB_PASSWORD_FILE
+  ? fs.readFileSync(process.env.DB_PASSWORD_FILE, 'utf8').trim()
+  : process.env.DB_PASSWORD;
+
+// Configuração do Pool usando variáveis de ambiente individuais
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://sms_user:JasonTricolor633@postgres:5432/sms_database',
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USERNAME,
+  password: password, // Usamos a senha lida do secret ou do .env
+  database: process.env.DB_DATABASE,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
+// =================== FIM DA CORREÇÃO ===================
+
 
 // Database connection with retry
 async function connectWithRetry() {
@@ -70,7 +82,7 @@ app.use(helmet({
 
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || [
-    'http://localhost:3000', 
+    'http://localhost:3000',
     'https://sms.druzzo.com.br',
     'http://localhost:8080'
   ],
@@ -113,7 +125,7 @@ const RATE_LIMIT_MAX = 100; // requests per window
 app.use((req, res, next) => {
   const ip = req.ip;
   const now = Date.now();
-  
+
   if (!requestCounts.has(ip)) {
     requestCounts.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
   } else {
@@ -139,7 +151,7 @@ app.get('/health', async (req, res) => {
   try {
     const dbResult = await pool.query('SELECT NOW(), version()');
     const memUsage = process.memoryUsage();
-    
+
     res.status(200).json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -228,7 +240,7 @@ app.get('/api/models', async (req, res) => {
       GROUP BY m.id
       ORDER BY m.name
     `);
-    
+
     res.json({
       success: true,
       data: result.rows,
@@ -236,7 +248,7 @@ app.get('/api/models', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching models:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch models',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
@@ -248,19 +260,19 @@ app.get('/api/models', async (req, res) => {
 app.post('/api/models', async (req, res) => {
   try {
     const { name, description } = req.body;
-    
+
     if (!name || name.trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Model name is required'
       });
     }
-    
+
     const result = await pool.query(
       'INSERT INTO device_models (name, description, created_at) VALUES ($1, $2, NOW()) RETURNING *',
       [name.trim(), description || null]
     );
-    
+
     res.status(201).json({
       success: true,
       message: 'Model added successfully',
@@ -288,26 +300,26 @@ app.put('/api/models/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
-    
+
     if (!name || name.trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Model name is required'
       });
     }
-    
+
     const result = await pool.query(
       'UPDATE device_models SET name = $1, description = $2, updated_at = NOW() WHERE id = $3 RETURNING *',
       [name.trim(), description || null, id]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Model not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Model updated successfully',
@@ -333,11 +345,11 @@ app.put('/api/models/:id', async (req, res) => {
 app.delete('/api/models/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Check if model has commands
     const commandCheck = await pool.query('SELECT COUNT(*) FROM commands WHERE model_id = $1', [id]);
     const commandCount = parseInt(commandCheck.rows[0].count);
-    
+
     if (commandCount > 0) {
       return res.status(409).json({
         success: false,
@@ -345,16 +357,16 @@ app.delete('/api/models/:id', async (req, res) => {
         suggestion: 'Delete all commands first or use force delete.'
       });
     }
-    
+
     const result = await pool.query('DELETE FROM device_models WHERE id = $1 RETURNING *', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Model not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Model deleted successfully',
@@ -375,7 +387,7 @@ app.delete('/api/models/:id', async (req, res) => {
 app.get('/api/models/:modelId/commands', async (req, res) => {
   try {
     const { modelId } = req.params;
-    
+
     const result = await pool.query(`
       SELECT 
         c.*,
@@ -385,7 +397,7 @@ app.get('/api/models/:modelId/commands', async (req, res) => {
       WHERE c.model_id = $1
       ORDER BY c.command_text
     `, [modelId]);
-    
+
     res.json({
       success: true,
       data: result.rows,
@@ -412,7 +424,7 @@ app.get('/api/commands', async (req, res) => {
       JOIN device_models m ON c.model_id = m.id
       ORDER BY m.name, c.command_text
     `);
-    
+
     res.json({
       success: true,
       data: result.rows,
@@ -431,14 +443,14 @@ app.get('/api/commands', async (req, res) => {
 app.post('/api/commands', async (req, res) => {
   try {
     const { modelId, commandText, description } = req.body;
-    
+
     if (!modelId || !commandText || commandText.trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Model ID and command text are required'
       });
     }
-    
+
     // Check if model exists
     const modelCheck = await pool.query('SELECT id FROM device_models WHERE id = $1', [modelId]);
     if (modelCheck.rows.length === 0) {
@@ -447,12 +459,12 @@ app.post('/api/commands', async (req, res) => {
         error: 'Model not found'
       });
     }
-    
+
     const result = await pool.query(
       'INSERT INTO commands (model_id, command_text, description, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
       [modelId, commandText.trim(), description || null]
     );
-    
+
     res.status(201).json({
       success: true,
       message: 'Command added successfully',
@@ -479,26 +491,26 @@ app.put('/api/commands/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { commandText, description } = req.body;
-    
+
     if (!commandText || commandText.trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Command text is required'
       });
     }
-    
+
     const result = await pool.query(
       'UPDATE commands SET command_text = $1, description = $2, updated_at = NOW() WHERE id = $3 RETURNING *',
       [commandText.trim(), description || null, id]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Command not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Command updated successfully',
@@ -517,16 +529,16 @@ app.put('/api/commands/:id', async (req, res) => {
 app.delete('/api/commands/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const result = await pool.query('DELETE FROM commands WHERE id = $1 RETURNING *', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Command not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Command deleted successfully',
@@ -547,25 +559,25 @@ app.delete('/api/commands/:id', async (req, res) => {
 app.post('/api/sms/send', async (req, res) => {
   try {
     const { phoneNumbers, modelId, commandText, notes } = req.body;
-    
+
     if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Phone numbers array is required'
       });
     }
-    
+
     if (!modelId || !commandText || commandText.trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Model ID and command text are required'
       });
     }
-    
+
     // Validate phone numbers
     const phoneRegex = /^[\d\+\-\(\)\s]{10,20}$/;
     const invalidPhones = phoneNumbers.filter(phone => !phoneRegex.test(phone.trim()));
-    
+
     if (invalidPhones.length > 0) {
       return res.status(400).json({
         success: false,
@@ -573,7 +585,7 @@ app.post('/api/sms/send', async (req, res) => {
         invalidPhones
       });
     }
-    
+
     // Check if model exists
     const modelCheck = await pool.query('SELECT name FROM device_models WHERE id = $1', [modelId]);
     if (modelCheck.rows.length === 0) {
@@ -582,42 +594,42 @@ app.post('/api/sms/send', async (req, res) => {
         error: 'Model not found'
       });
     }
-    
+
     const modelName = modelCheck.rows[0].name;
     const results = [];
     const errors = [];
-    
+
     // Process each phone number
     for (const phone of phoneNumbers) {
       try {
         const cleanPhone = phone.trim();
-        
+
         // Here you would integrate with your SMS service
         // For now, we'll simulate SMS sending and log to database
         const smsResult = await sendSMSCommand(cleanPhone, commandText, modelName);
-        
+
         const result = await pool.query(`
           INSERT INTO sms_history 
           (phone_number, model_id, command_text, status, sent_at, details, notes, response_data) 
           VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7) 
           RETURNING *
         `, [
-          cleanPhone, 
-          modelId, 
-          commandText.trim(), 
+          cleanPhone,
+          modelId,
+          commandText.trim(),
           smsResult.success ? 'sent' : 'failed',
           smsResult.details || null,
           notes || null,
           JSON.stringify(smsResult)
         ]);
-        
+
         results.push({
           phone: cleanPhone,
           status: smsResult.success ? 'sent' : 'failed',
           id: result.rows[0].id,
           details: smsResult.details
         });
-        
+
       } catch (error) {
         console.error(`Error sending SMS to ${phone}:`, error);
         errors.push({
@@ -626,10 +638,10 @@ app.post('/api/sms/send', async (req, res) => {
         });
       }
     }
-    
+
     const successCount = results.filter(r => r.status === 'sent').length;
     const failCount = results.filter(r => r.status === 'failed').length + errors.length;
-    
+
     res.json({
       success: successCount > 0,
       message: `SMS processing completed. Sent: ${successCount}, Failed: ${failCount}`,
@@ -641,7 +653,7 @@ app.post('/api/sms/send', async (req, res) => {
       results,
       errors: errors.length > 0 ? errors : undefined
     });
-    
+
   } catch (error) {
     console.error('Error in SMS send endpoint:', error);
     res.status(500).json({
@@ -657,10 +669,10 @@ async function sendSMSCommand(phoneNumber, command, modelName) {
   try {
     // Simulate SMS sending delay
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     // Simulate success/failure (90% success rate)
     const success = Math.random() > 0.1;
-    
+
     if (success) {
       return {
         success: true,
@@ -687,70 +699,70 @@ async function sendSMSCommand(phoneNumber, command, modelName) {
 // Get SMS history with advanced filtering
 app.get('/api/sms/history', async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 50, 
-      status, 
-      modelId, 
+    const {
+      page = 1,
+      limit = 50,
+      status,
+      modelId,
       phoneNumber,
       dateFrom,
       dateTo,
       search
     } = req.query;
-    
+
     const offset = (page - 1) * limit;
     let whereClause = '';
     const params = [];
     let paramCount = 0;
-    
+
     // Build dynamic WHERE clause
     const conditions = [];
-    
+
     if (status) {
       paramCount++;
       conditions.push(`h.status = $${paramCount}`);
       params.push(status);
     }
-    
+
     if (modelId) {
       paramCount++;
       conditions.push(`h.model_id = $${paramCount}`);
       params.push(modelId);
     }
-    
+
     if (phoneNumber) {
       paramCount++;
       conditions.push(`h.phone_number ILIKE $${paramCount}`);
       params.push(`%${phoneNumber}%`);
     }
-    
+
     if (dateFrom) {
       paramCount++;
       conditions.push(`h.sent_at >= $${paramCount}`);
       params.push(dateFrom);
     }
-    
+
     if (dateTo) {
       paramCount++;
       conditions.push(`h.sent_at <= $${paramCount}`);
       params.push(dateTo);
     }
-    
+
     if (search) {
       paramCount++;
       conditions.push(`(h.command_text ILIKE $${paramCount} OR h.notes ILIKE $${paramCount} OR m.name ILIKE $${paramCount})`);
       params.push(`%${search}%`);
     }
-    
+
     if (conditions.length > 0) {
       whereClause = 'WHERE ' + conditions.join(' AND ');
     }
-    
+
     // Add pagination parameters
     params.push(limit, offset);
     const limitParam = paramCount + 1;
     const offsetParam = paramCount + 2;
-    
+
     const query = `
       SELECT 
         h.*,
@@ -767,9 +779,9 @@ app.get('/api/sms/history', async (req, res) => {
       ORDER BY h.sent_at DESC
       LIMIT $${limitParam} OFFSET $${offsetParam}
     `;
-    
+
     const result = await pool.query(query, params);
-    
+
     // Get total count for pagination
     const countQuery = `
       SELECT COUNT(*) 
@@ -777,10 +789,10 @@ app.get('/api/sms/history', async (req, res) => {
       LEFT JOIN device_models m ON h.model_id = m.id
       ${whereClause}
     `;
-    
+
     const countResult = await pool.query(countQuery, params.slice(0, paramCount));
     const total = parseInt(countResult.rows[0].count);
-    
+
     res.json({
       success: true,
       data: result.rows,
@@ -814,7 +826,7 @@ app.get('/api/sms/history', async (req, res) => {
 app.get('/api/sms/stats', async (req, res) => {
   try {
     const { period = '30' } = req.query; // days
-    
+
     const stats = await pool.query(`
       SELECT 
         COUNT(*) as total_messages,
@@ -829,7 +841,7 @@ app.get('/api/sms/stats', async (req, res) => {
       GROUP BY DATE_TRUNC('day', sent_at)
       ORDER BY date DESC
     `);
-    
+
     const totals = await pool.query(`
       SELECT 
         COUNT(*) as total_messages,
@@ -840,7 +852,7 @@ app.get('/api/sms/stats', async (req, res) => {
       FROM sms_history 
       WHERE sent_at >= NOW() - INTERVAL '${parseInt(period)} days'
     `);
-    
+
     const topModels = await pool.query(`
       SELECT 
         m.name,
@@ -853,7 +865,7 @@ app.get('/api/sms/stats', async (req, res) => {
       ORDER BY usage_count DESC
       LIMIT 10
     `);
-    
+
     res.json({
       success: true,
       period: `${period} days`,
@@ -876,7 +888,7 @@ app.get('/api/sms/stats', async (req, res) => {
 app.get('/api/reports/pdf', async (req, res) => {
   try {
     const { period = 'week' } = req.query;
-    
+
     // This would generate a PDF report
     // For now, return a placeholder response
     res.json({
@@ -898,7 +910,7 @@ app.get('/api/reports/pdf', async (req, res) => {
 app.get('/api/reports/csv', async (req, res) => {
   try {
     const { period = '30' } = req.query;
-    
+
     const result = await pool.query(`
       SELECT 
         h.phone_number,
@@ -913,11 +925,11 @@ app.get('/api/reports/csv', async (req, res) => {
       WHERE h.sent_at >= NOW() - INTERVAL '${parseInt(period)} days'
       ORDER BY h.sent_at DESC
     `);
-    
+
     // Generate CSV content
     const headers = ['Phone Number', 'Model', 'Command', 'Status', 'Sent At', 'Notes', 'Details'];
     let csvContent = headers.join(',') + '\n';
-    
+
     result.rows.forEach(row => {
       const csvRow = [
         `"${row.phone_number}"`,
@@ -930,11 +942,11 @@ app.get('/api/reports/csv', async (req, res) => {
       ].join(',');
       csvContent += csvRow + '\n';
     });
-    
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="sms_report_${period}days.csv"`);
     res.send(csvContent);
-    
+
   } catch (error) {
     console.error('Error generating CSV report:', error);
     res.status(500).json({
@@ -956,19 +968,19 @@ app.get('/api/sms', async (req, res) => {
 app.post('/api/sms', async (req, res) => {
   try {
     const { phone, message, sender } = req.body;
-    
+
     if (!phone || !message) {
       return res.status(400).json({
         success: false,
         error: 'Phone and message are required'
       });
     }
-    
+
     const result = await pool.query(
       'INSERT INTO sms_messages (phone, message, sender, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
       [phone, message, sender || 'system']
     );
-    
+
     res.status(201).json({
       success: true,
       message: 'SMS sent successfully',
@@ -988,7 +1000,7 @@ app.post('/api/sms', async (req, res) => {
 async function initializeDatabase() {
   try {
     console.log('🔄 Initializing database tables...');
-    
+
     // Create device_models table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS device_models (
@@ -999,7 +1011,7 @@ async function initializeDatabase() {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    
+
     // Create commands table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS commands (
@@ -1012,7 +1024,7 @@ async function initializeDatabase() {
         UNIQUE(model_id, command_text)
       )
     `);
-    
+
     // Create sms_history table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS sms_history (
@@ -1027,7 +1039,7 @@ async function initializeDatabase() {
         response_data JSONB
       )
     `);
-    
+
     // Create legacy sms_messages table for compatibility
     await pool.query(`
       CREATE TABLE IF NOT EXISTS sms_messages (
@@ -1040,7 +1052,7 @@ async function initializeDatabase() {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    
+
     // Create indexes for better performance
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_sms_history_phone ON sms_history(phone_number);
@@ -1048,7 +1060,7 @@ async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_sms_history_sent_at ON sms_history(sent_at);
       CREATE INDEX IF NOT EXISTS idx_commands_model_id ON commands(model_id);
     `);
-    
+
     // Insert sample data
     await pool.query(`
       INSERT INTO device_models (name, description) 
@@ -1061,7 +1073,7 @@ async function initializeDatabase() {
         ('GT02A', 'Rastreador GPS GT02A - Modelo pessoal')
       ON CONFLICT (name) DO NOTHING
     `);
-    
+
     // Insert sample commands
     const sampleCommands = [
       { model: 'TK103', commands: ['RESET123456', 'STATUS123456', 'GPRS123456', 'APN123456'] },
@@ -1069,7 +1081,7 @@ async function initializeDatabase() {
       { model: 'GT06', commands: ['RESET#', 'STATUS#', 'GPRS#', 'SERVER#'] },
       { model: 'ST901', commands: ['*123456*000#', '*123456*001#', '*123456*002#', '*123456*003#'] }
     ];
-    
+
     for (const { model, commands } of sampleCommands) {
       const modelResult = await pool.query('SELECT id FROM device_models WHERE name = $1', [model]);
       if (modelResult.rows.length > 0) {
@@ -1083,7 +1095,7 @@ async function initializeDatabase() {
         }
       }
     }
-    
+
     console.log('✅ Database tables initialized successfully');
   } catch (error) {
     console.error('❌ Error initializing database:', error);
@@ -1103,7 +1115,7 @@ app.use((err, req, res, next) => {
     ip: req.ip,
     timestamp: new Date().toISOString()
   });
-  
+
   res.status(err.status || 500).json({
     success: false,
     error: 'Something went wrong!',
@@ -1129,7 +1141,7 @@ app.use('*', (req, res) => {
 
 async function gracefulShutdown(signal) {
   console.log(`🔄 ${signal} received, shutting down gracefully...`);
-  
+
   // Close database connections
   try {
     await pool.end();
@@ -1137,14 +1149,14 @@ async function gracefulShutdown(signal) {
   } catch (error) {
     console.error('❌ Error closing database connections:', error);
   }
-  
+
   // Close server
   if (server) {
     server.close(() => {
       console.log('✅ HTTP server closed');
       process.exit(0);
     });
-    
+
     // Force close after 10 seconds
     setTimeout(() => {
       console.log('❌ Forcing server close');
@@ -1177,10 +1189,10 @@ async function startServer() {
   try {
     // Connect to database with retry
     await connectWithRetry();
-    
+
     // Initialize database
     await initializeDatabase();
-    
+
     // Start HTTP server
     server = app.listen(PORT, '0.0.0.0', () => {
       console.log('🚀 SMS App DS Server Started Successfully!');
@@ -1194,7 +1206,7 @@ async function startServer() {
       console.log(`📈 Monitoring: Active`);
       console.log('='.repeat(50));
     });
-    
+
     // Handle server errors
     server.on('error', (error) => {
       console.error('❌ Server error:', error);
@@ -1203,7 +1215,7 @@ async function startServer() {
         process.exit(1);
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
