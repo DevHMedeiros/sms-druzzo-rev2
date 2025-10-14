@@ -1,0 +1,106 @@
+version: "3.8"
+
+services:
+  sms-app:
+    image: ghcr.io/devhmedeiros/sms-app-ds:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      labels:
+        # Traefik configuration
+        - "traefik.enable=true"
+        - "traefik.docker.network=network_public"
+        
+        # HTTP to HTTPS redirect
+        - "traefik.http.routers.sms-app-http.rule=Host(`sms.druzzo.com.br`)"
+        - "traefik.http.routers.sms-app-http.entrypoints=web"
+        - "traefik.http.routers.sms-app-http.middlewares=redirect-https@docker"
+        
+        # HTTPS router
+        - "traefik.http.routers.sms-app.rule=Host(`sms.druzzo.com.br`)"
+        - "traefik.http.routers.sms-app.entrypoints=websecure"
+        - "traefik.http.routers.sms-app.tls.certresolver=letsencryptresolver"
+        
+        # Service configuration
+        - "traefik.http.services.sms-app.loadbalancer.server.port=3000"
+        - "traefik.http.services.sms-app.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.sms-app.loadbalancer.healthcheck.interval=30s"
+        
+        # Security headers
+        - "traefik.http.middlewares.sms-security.headers.frameDeny=true"
+        - "traefik.http.middlewares.sms-security.headers.sslRedirect=true"
+        - "traefik.http.middlewares.sms-security.headers.browserXssFilter=true"
+        - "traefik.http.middlewares.sms-security.headers.contentTypeNosniff=true"
+        - "traefik.http.middlewares.sms-security.headers.forceSTSHeader=true"
+        - "traefik.http.middlewares.sms-security.headers.stsIncludeSubdomains=true"
+        - "traefik.http.middlewares.sms-security.headers.stsPreload=true"
+        - "traefik.http.middlewares.sms-security.headers.stsSeconds=31536000"
+        - "traefik.http.routers.sms-app.middlewares=sms-security"
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://sms_user:JasonTricolor633@postgres:5432/sms_database
+      
+    networks:
+      - network_public
+      - sms_internal
+    
+    depends_on:
+      - postgres
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:15-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      - POSTGRES_DB=sms_database
+      - POSTGRES_USER=sms_user
+      - POSTGRES_PASSWORD=JasonTricolor633
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sms_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sms_user -d sms_database"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    external: true
+    name: sms_postgres_data
+
+networks:
+  network_public:
+    external: true
+    name: network_public
+  sms_internal:
+    driver: overlay
+    attachable: true
